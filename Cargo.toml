@@ -1,0 +1,12 @@
+[package]
+name = "otmb"
+version = "0.1.0"
+edition = "2021"
+description = "Library for loading and using OTMB map files from The Forgotten Server"
+authors = ["Your Name"]
+license = "MIT"
+
+[dependencies]
+byteorder = "1.4.3"
+thiserror = "1.0.40"
+log = "0.4.17"
