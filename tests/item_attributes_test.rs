@@ -1,4 +1,4 @@
-use otmb::{Item, ItemAttribute, AttributeValue};
+use otbm::{Item, ItemAttribute, AttributeValue};
 
 #[test]
 fn test_basic_attributes() {

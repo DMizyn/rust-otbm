@@ -1,4 +1,4 @@
-use otmb::{Map, Position, Tile, Item, OtmbError};
+use otbm::{Map, Position, Tile, Item, OtmbError};
 
 #[test]
 fn test_position() {

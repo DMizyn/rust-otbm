@@ -1,4 +1,4 @@
-use otmb::{OtbmLoader, Result, Position, HouseManager};
+use otbm::{OtbmLoader, Result, Position, HouseManager};
 use std::path::Path;
 use std::fs::File;
 use std::io::Read;
