@@ -1,5 +1,5 @@
 [package]
-name = "otbm"
+name = "rust-otbm"
 version = "0.1.0"
 edition = "2021"
 description = "Library for loading and using OTBM map files from The Forgotten Server"
