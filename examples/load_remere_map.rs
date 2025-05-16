@@ -1,4 +1,4 @@
-use otmb::OtbmLoader;
+use rust_otbm::OtbmLoader;
 use std::env;
 use std::path::Path;
 

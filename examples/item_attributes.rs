@@ -1,4 +1,4 @@
-use otmb::{Item, ItemAttribute, AttributeValue, Position};
+use rust_otbm::{Item, ItemAttribute, AttributeValue};
 
 fn main() {
     // Create a new item

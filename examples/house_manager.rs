@@ -1,4 +1,4 @@
-use otmb::{HouseManager, House, Door, Position, Result};
+use rust_otbm::{HouseManager, House, Door, Position, Result};
 use std::path::Path;
 
 fn main() -> Result<()> {
@@ -13,6 +13,7 @@ fn main() -> Result<()> {
         rent: 1500,
         town_id: 1,
         size: 30,
+        guild_hall: false,
         tiles: Default::default(),
         doors: Vec::new(),
         access_list: Vec::new(),

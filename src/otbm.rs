@@ -35,6 +35,10 @@ pub enum OtbmNodeType {
     Waypoint = 16,
 }
 
+/// Node markers in OTBM format
+const NODE_INIT: u8 = 0xFE;
+const NODE_TERM: u8 = 0xFF;
+
 /// Loader for OTBM map files from Remere's Map Editor
 pub struct OtbmLoader;
 
@@ -54,19 +58,31 @@ impl OtbmLoader {
             ));
         }
         
-        // Read version (Remere's format has a different structure)
+        // Read the root node marker (0xFE)
+        let node_start = file.read_u8()?;
+        if node_start != NODE_INIT {
+            return Err(OtmbError::InvalidFormat(
+                format!("Expected root node marker 0xFE, got 0x{:X}", node_start)
+            ));
+        }
+        
+        // Read the map header node type (0x00)
+        let node_type = file.read_u8()?;
+        if node_type != OtbmNodeType::RootV1 as u8 {
+            return Err(OtmbError::InvalidFormat(
+                format!("Expected map header node type 0x00, got 0x{:X}", node_type)
+            ));
+        }
+        
+        // Read version (4 bytes)
         let version = file.read_u32::<LittleEndian>()?;
         
-        // Skip some bytes to get to the map header
-        let mut skip_buffer = [0u8; 4];
-        file.read_exact(&mut skip_buffer)?;
-        
-        // Read map dimensions
+        // Read map dimensions (2 bytes each)
         let width = file.read_u16::<LittleEndian>()?;
-        let height = file.read_u16::<LittleEndian>()?;
+        let _height = file.read_u16::<LittleEndian>()?; // Read but ignore height
         
-        // Skip to the description
-        file.seek(SeekFrom::Current(4))?;
+        // Skip items version information (8 bytes)
+        file.seek(SeekFrom::Current(8))?;
         
         // Try to find the description in the file
         let mut buffer = Vec::new();
@@ -81,8 +97,9 @@ impl OtbmLoader {
             "Map loaded from OTBM file".to_string()
         };
         
-        // Create map
-        let mut map = Map::new(width, height, description, version);
+        // Create map with dimensions from the file
+        // For Remere's Map Editor, the height should be the same as width
+        let mut map = Map::new(width, width, description, version);
         
         // Parse tiles from the buffer
         Self::parse_tiles(&buffer, &mut map)?;
@@ -185,18 +202,29 @@ impl OtbmLoader {
         // Write file identifier
         file.write_all(OTBM_IDENTIFIER)?;
         
+        // Write root node marker
+        file.write_u8(NODE_INIT)?;
+        
+        // Write map header node type
+        file.write_u8(OtbmNodeType::RootV1 as u8)?;
+        
         // Write version
         file.write_u32::<LittleEndian>(map.version)?;
-        
-        // Write placeholder for header
-        file.write_all(&[0, 0, 0, 8])?;
         
         // Write map dimensions
         file.write_u16::<LittleEndian>(map.width)?;
         file.write_u16::<LittleEndian>(map.height)?;
         
-        // Write placeholder for description
-        file.write_all(&[1, 0, 0, 0])?;
+        // Write placeholder for items version (8 bytes)
+        file.write_u32::<LittleEndian>(0)?; // Major version
+        file.write_u32::<LittleEndian>(0)?; // Minor version
+        
+        // Write node terminator
+        file.write_u8(NODE_TERM)?;
+        
+        // Write map data node
+        file.write_u8(NODE_INIT)?;
+        file.write_u8(OtbmNodeType::MapData as u8)?;
         
         // Write description
         let desc_bytes = map.description.as_bytes();
@@ -227,6 +255,9 @@ impl OtbmLoader {
                 file.write_u16::<LittleEndian>(item.id)?;
             }
         }
+        
+        // Write node terminator
+        file.write_u8(NODE_TERM)?;
         
         // Save house data if available
         if let Some(house_manager) = map.house_manager() {

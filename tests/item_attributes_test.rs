@@ -1,4 +1,4 @@
-use otbm::{Item, ItemAttribute, AttributeValue};
+use rust_otbm::{Item, ItemAttribute, AttributeValue};
 
 #[test]
 fn test_basic_attributes() {

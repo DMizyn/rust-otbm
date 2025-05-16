@@ -1,4 +1,4 @@
-use otbm::{Map, Position, Tile, Item, OtmbError};
+use rust_otbm::{Map, Position, Tile, Item, OtmbError, ItemAttribute, AttributeValue};
 
 #[test]
 fn test_position() {
@@ -40,8 +40,9 @@ fn test_tile_items() {
     // Initially walkable
     assert!(tile.is_walkable());
     
-    // Add a blocking item (ID divisible by 5 is blocking in our implementation)
-    let blocking_item = Item::new(5);
+    // Add a blocking item
+    let mut blocking_item = Item::new(5);
+    blocking_item.set_attribute(ItemAttribute::Blocksolid, AttributeValue::Boolean(true));
     tile.add_item(blocking_item);
     
     // Should now be blocking

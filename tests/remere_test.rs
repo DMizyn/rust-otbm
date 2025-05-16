@@ -1,4 +1,4 @@
-use otbm::{OtbmLoader, Result, Position, HouseManager};
+use rust_otbm::{OtbmLoader, Result, Position, HouseManager};
 use std::path::Path;
 use std::fs::File;
 use std::io::Read;
@@ -18,6 +18,11 @@ fn test_load_remere_map() -> Result<()> {
     // Print map information
     println!("Map loaded successfully!");
     println!("Dimensions: {}x{}", map.width, map.height);
+    
+    // Check that the map dimensions are 2048x2048
+    assert_eq!(map.width, 2048, "Map width should be 2048");
+    assert_eq!(map.height, 2048, "Map height should be 2048");
+    
     println!("Description: {}", map.description);
     println!("OTBM Version: {}", map.version);
     println!("Tile count: {}", map.tile_count());

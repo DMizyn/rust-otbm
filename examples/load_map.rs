@@ -1,4 +1,4 @@
-use otmb::OtmbLoader;
+use rust_otbm::OtbmLoader;
 use std::env;
 use std::path::Path;
 
@@ -15,7 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Load the map
     println!("Loading map from {}...", path.display());
-    let map = OtmbLoader::load(path)?;
+    let map = OtbmLoader::load(path)?;
     
     // Display map information
     println!("Map loaded successfully!");

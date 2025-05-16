@@ -1,6 +1,5 @@
 pub mod error;
 pub mod map;
-pub mod otmb;
 pub mod otbm;
 pub mod tile;
 pub mod item;
@@ -9,7 +8,6 @@ pub mod house;
 
 pub use error::OtmbError;
 pub use map::Map;
-pub use otmb::OtmbLoader;
 pub use otbm::OtbmLoader;
 pub use position::Position;
 pub use tile::Tile;
