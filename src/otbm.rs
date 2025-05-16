@@ -79,7 +79,7 @@ impl OtbmLoader {
         
         // Read map dimensions (2 bytes each)
         let width = file.read_u16::<LittleEndian>()?;
-        let _height = file.read_u16::<LittleEndian>()?; // Read but ignore height
+        let height = file.read_u16::<LittleEndian>()?;
         
         // Skip items version information (8 bytes)
         file.seek(SeekFrom::Current(8))?;
@@ -99,7 +99,7 @@ impl OtbmLoader {
         
         // Create map with dimensions from the file
         // For Remere's Map Editor, the height should be the same as width
-        let mut map = Map::new(width, width, description, version);
+        let mut map = Map::new(width, height, description, version);
         
         // Parse tiles from the buffer
         Self::parse_tiles(&buffer, &mut map)?;
