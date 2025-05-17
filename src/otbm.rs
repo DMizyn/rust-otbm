@@ -124,73 +124,124 @@ impl OtbmLoader {
     
     /// Parse tiles from the buffer
     fn parse_tiles(buffer: &[u8], map: &mut Map) -> crate::Result<()> {
-        // Find tile markers in the buffer
+        // First scan for all z-levels to understand the structure
+        let mut z_levels = std::collections::HashSet::new();
+        
+        // Find tile area markers in the buffer
         let mut i = 0;
-        while i < buffer.len() - 1 {
-            if buffer[i] == 5 && (buffer[i+1] == 0 || buffer[i+1] == 1) {
-                // This looks like a tile marker
-                if i + 4 < buffer.len() {
-                    // Try to extract position
-                    let x = buffer[i+1] as u16;
-                    let y = buffer[i+2] as u16;
-                    let z = 7; // Default z level
+        while i < buffer.len() - 5 {
+            // Look for NODE_INIT followed by TileArea type
+            if buffer[i] == NODE_INIT && i + 1 < buffer.len() && buffer[i+1] == OtbmNodeType::TileArea as u8 {
+                // This is a tile area node
+                if i + 6 < buffer.len() {
+                    // Extract area position (x, y, z)
+                    let area_x = buffer[i+2] as u16 | ((buffer[i+3] as u16) << 8);
+                    let area_y = buffer[i+4] as u16 | ((buffer[i+5] as u16) << 8);
+                    let area_z = buffer[i+6];
                     
-                    let position = Position::new(x, y, z);
-                    let mut tile = Tile::new(position);
+                    // Record this z-level
+                    z_levels.insert(area_z);
                     
-                    // Add a ground item (placeholder)
-                    let ground = Item::new(100);
-                    tile.add_item(ground);
-                    
-                    // Check if this is a house tile
-                    if i + 5 < buffer.len() && buffer[i+5] == OtbmNodeType::HouseTile as u8 {
-                        // This is a house tile, extract house ID
-                        if i + 9 < buffer.len() {
-                            let house_id = buffer[i+6] as u32 | 
-                                          ((buffer[i+7] as u32) << 8) | 
-                                          ((buffer[i+8] as u32) << 16) | 
-                                          ((buffer[i+9] as u32) << 24);
-                            
-                            tile.set_house_id(house_id);
-                            
-                            // Add the tile to the house
-                            if let Some(house_manager) = map.house_manager_mut() {
-                                let _ = house_manager.add_tile_to_house(house_id, position);
-                            }
-                        }
-                    }
-                    
-                    // Check for doors
-                    if i + 10 < buffer.len() && buffer[i+10] == OtbmNodeType::Item as u8 {
-                        // This could be a door item
-                        if i + 12 < buffer.len() {
-                            let item_id = buffer[i+11] as u16 | ((buffer[i+12] as u16) << 8);
-                            
-                            // Check if this is a door item (simplified check)
-                            // In a real implementation, you would check against a list of door IDs
-                            if item_id >= 1000 && item_id <= 1100 {
-                                let door = Door {
-                                    position,
-                                    id: item_id,
-                                    locked: false, // Default to unlocked
-                                };
-                                
-                                // Add the door to the house if this is a house tile
-                                if let Some(house_id) = tile.house_id() {
-                                    if let Some(house_manager) = map.house_manager_mut() {
-                                        let _ = house_manager.add_door_to_house(house_id, door);
+                    // Now look for tiles within this area
+                    let mut j = i + 7;
+                    while j < buffer.len() - 3 {
+                        // Check for NODE_INIT followed by Tile or HouseTile
+                        if buffer[j] == NODE_INIT && j + 1 < buffer.len() {
+                            if buffer[j+1] == OtbmNodeType::Tile as u8 || buffer[j+1] == OtbmNodeType::HouseTile as u8 {
+                                // Found a tile, extract relative position
+                                if j + 3 < buffer.len() {
+                                    let rel_x = buffer[j+2];
+                                    let rel_y = buffer[j+3];
+                                    
+                                    // Calculate absolute position
+                                    let x = area_x + rel_x as u16;
+                                    let y = area_y + rel_y as u16;
+                                    let z = area_z;
+                                    
+                                    let position = Position::new(x, y, z);
+                                    let mut tile = Tile::new(position);
+                                    
+                                    // Check if this is a house tile
+                                    let is_house_tile = buffer[j+1] == OtbmNodeType::HouseTile as u8;
+                                    let mut house_id = None;
+                                    
+                                    if is_house_tile && j + 7 < buffer.len() {
+                                        // Extract house ID (4 bytes)
+                                        let id = buffer[j+4] as u32 | 
+                                                ((buffer[j+5] as u32) << 8) | 
+                                                ((buffer[j+6] as u32) << 16) | 
+                                                ((buffer[j+7] as u32) << 24);
+                                        
+                                        house_id = Some(id);
+                                        tile.set_house_id(id);
                                     }
+                                    
+                                    // Look for items in this tile
+                                    let mut k = j + (if is_house_tile { 8 } else { 4 });
+                                    while k < buffer.len() - 3 {
+                                        if buffer[k] == NODE_INIT && k + 1 < buffer.len() && buffer[k+1] == OtbmNodeType::Item as u8 {
+                                            // Found an item
+                                            if k + 3 < buffer.len() {
+                                                let item_id = buffer[k+2] as u16 | ((buffer[k+3] as u16) << 8);
+                                                
+                                                // Create the item and add it to the tile
+                                                let item = Item::new(item_id);
+                                                tile.add_item(item);
+                                                
+                                                // Check if this is a door
+                                                if item_id >= 1000 && item_id <= 1100 && house_id.is_some() {
+                                                    let door = Door {
+                                                        position,
+                                                        id: item_id,
+                                                        locked: false,
+                                                    };
+                                                    
+                                                    // Add the door to the house
+                                                    if let Some(house_manager) = map.house_manager_mut() {
+                                                        let _ = house_manager.add_door_to_house(house_id.unwrap(), door);
+                                                    }
+                                                }
+                                            }
+                                            
+                                            // Skip to the end of this item node
+                                            k += 4;
+                                            while k < buffer.len() && buffer[k] != NODE_TERM {
+                                                k += 1;
+                                            }
+                                            k += 1; // Skip over the NODE_TERM
+                                        } else if buffer[k] == NODE_TERM {
+                                            // End of tile node
+                                            break;
+                                        } else {
+                                            k += 1;
+                                        }
+                                    }
+                                    
+                                    // If no items were added, add a default ground item
+                                    if tile.items.is_empty() {
+                                        let ground = Item::new(231); // Use 231 as the default ground ID
+                                        tile.add_item(ground);
+                                    }
+                                    
+                                    // Add the tile to the map
+                                    let _ = map.add_tile(tile);
                                 }
                             }
+                        } else if buffer[j] == NODE_TERM {
+                            // End of tile area node
+                            break;
                         }
+                        j += 1;
                     }
-                    
-                    // Add the tile to the map
-                    let _ = map.add_tile(tile);
                 }
             }
             i += 1;
         }
+        
+        // Log the z-levels found
+        let mut z_vec: Vec<u8> = z_levels.into_iter().collect();
+        z_vec.sort();
+        println!("Map uses z-levels: {:?} (sea level is 7)", z_vec);
         
         Ok(())
     }
