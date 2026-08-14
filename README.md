@@ -151,7 +151,7 @@ println!("Is movable: {}", item.is_movable());
 The library supports all item attributes used in The Forgotten Server:
 
 ### Basic Attributes
-- Name, Description, Article, Plural
+- Name, Description, Article, Plural, ActionId, UniqueId
 - Weight, Attack, Defense, ExtraDefense, Armor, HitChance, ShootRange
 
 ### Appearance Attributes
@@ -190,6 +190,11 @@ The library supports all item attributes used in The Forgotten Server:
 
 ### Custom Attributes
 - Support for custom named attributes
+
+The OTBM loader preserves serialized action ids, unique ids, text, charges,
+teleport destinations, depot ids, house-door ids and the remaining standard
+item attributes on both inline ground items and child item nodes. Game servers
+can therefore enforce door, key, quest and tool behavior from map metadata.
 
 ## House System
 

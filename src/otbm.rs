@@ -5,7 +5,7 @@ use std::path::Path;
 
 use crate::error::OtmbError;
 use crate::house::{Door, HouseManager};
-use crate::item::Item;
+use crate::item::{AttributeValue, Item, ItemAttribute};
 use crate::map::Map;
 use crate::position::Position;
 use crate::tile::Tile;
@@ -121,6 +121,94 @@ fn read_string(data: &[u8], cursor: &mut usize) -> crate::Result<String> {
     })?;
     *cursor += length;
     Ok(String::from_utf8_lossy(bytes).into_owned())
+}
+
+fn parse_item_attributes(data: &[u8], cursor: &mut usize, item: &mut Item) -> crate::Result<()> {
+    while *cursor < data.len() {
+        let attribute = data[*cursor];
+        *cursor += 1;
+        match attribute {
+            1 | 6 | 7 | 19 => {
+                let value = read_string(data, cursor)?;
+                let key = match attribute {
+                    1 | 7 => ItemAttribute::Description,
+                    6 => ItemAttribute::Custom("text".to_string()),
+                    19 => ItemAttribute::Custom("written_by".to_string()),
+                    _ => unreachable!(),
+                };
+                item.set_attribute(key, AttributeValue::String(value));
+            }
+            4 | 5 | 10 | 22 => {
+                let value = read_u16(data, *cursor)?;
+                *cursor += 2;
+                let key = match attribute {
+                    4 => ItemAttribute::ActionId,
+                    5 => ItemAttribute::UniqueId,
+                    10 => ItemAttribute::Custom("depot_id".to_string()),
+                    22 => ItemAttribute::Charges,
+                    _ => unreachable!(),
+                };
+                item.set_attribute(key, AttributeValue::Integer(i32::from(value)));
+            }
+            8 => {
+                let x = read_u16(data, *cursor)?;
+                let y = read_u16(data, *cursor + 2)?;
+                let z = *data.get(*cursor + 4).ok_or_else(|| {
+                    OtmbError::InvalidFormat("Missing teleport destination z".to_string())
+                })?;
+                *cursor += 5;
+                item.set_attribute(
+                    ItemAttribute::TeleportDestination,
+                    AttributeValue::Position { x, y, z },
+                );
+            }
+            12 | 15 | 17 => {
+                let value = *data.get(*cursor).ok_or_else(|| {
+                    OtmbError::InvalidFormat(format!("Missing u8 for item attribute {attribute}"))
+                })?;
+                *cursor += 1;
+                let key = match attribute {
+                    12 => ItemAttribute::Charges,
+                    15 => ItemAttribute::Custom("count".to_string()),
+                    17 => ItemAttribute::Custom("decaying_state".to_string()),
+                    _ => unreachable!(),
+                };
+                item.set_attribute(key, AttributeValue::Integer(i32::from(value)));
+            }
+            14 => {
+                let value = *data
+                    .get(*cursor)
+                    .ok_or_else(|| OtmbError::InvalidFormat("Missing house door id".to_string()))?;
+                *cursor += 1;
+                item.set_attribute(
+                    ItemAttribute::DoorId,
+                    AttributeValue::Integer(i32::from(value)),
+                );
+            }
+            16 | 18 | 20 | 21 => {
+                let value = read_u32(data, *cursor)?;
+                *cursor += 4;
+                let name = match attribute {
+                    16 => "duration",
+                    18 => "written_date",
+                    20 => "sleeper_guid",
+                    21 => "sleep_start",
+                    _ => unreachable!(),
+                };
+                item.set_attribute(
+                    ItemAttribute::Custom(name.to_string()),
+                    AttributeValue::Integer(i32::try_from(value).unwrap_or(i32::MAX)),
+                );
+            }
+            _ => {
+                return Err(OtmbError::InvalidFormat(format!(
+                    "Unsupported OTBM item attribute {attribute} at property offset {}",
+                    *cursor - 1
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Loader for OTBM map files from Remere's Map Editor
@@ -325,7 +413,9 @@ impl OtbmLoader {
                         9 => {
                             let item_id = read_u16(&tile_node.props, prop_cursor)?;
                             prop_cursor += 2;
-                            tile.add_item(Item::new(item_id));
+                            let mut item = Item::new(item_id);
+                            parse_item_attributes(&tile_node.props, &mut prop_cursor, &mut item)?;
+                            tile.add_item(item);
                         }
                         // Item-specific attributes after an inline ground item require
                         // items.otb metadata to determine their encoded size. The map used
@@ -343,7 +433,10 @@ impl OtbmLoader {
                         )));
                     }
                     let item_id = read_u16(&item_node.props, 0)?;
-                    tile.add_item(Item::new(item_id));
+                    let mut item = Item::new(item_id);
+                    let mut item_cursor = 2;
+                    parse_item_attributes(&item_node.props, &mut item_cursor, &mut item)?;
+                    tile.add_item(item);
 
                     if let Some(id) = house_id {
                         if (1000..=1100).contains(&item_id) {
@@ -578,6 +671,42 @@ mod tests {
         assert!(tile.flags.protected);
         assert!(tile.flags.no_logout);
         assert!(!tile.flags.no_combat);
+    }
+
+    #[test]
+    fn tile_parser_preserves_action_and_unique_ids_on_child_items() {
+        let mut item_props = 1209u16.to_le_bytes().to_vec();
+        item_props.push(4);
+        item_props.extend_from_slice(&5012u16.to_le_bytes());
+        item_props.push(5);
+        item_props.extend_from_slice(&42u16.to_le_bytes());
+        let map_data = OtbmNode {
+            node_type: OtbmNodeType::MapData as u8,
+            props: Vec::new(),
+            children: vec![OtbmNode {
+                node_type: OtbmNodeType::TileArea as u8,
+                props: vec![100, 0, 100, 0, 7],
+                children: vec![OtbmNode {
+                    node_type: OtbmNodeType::Tile as u8,
+                    props: vec![0, 0],
+                    children: vec![OtbmNode {
+                        node_type: OtbmNodeType::Item as u8,
+                        props: item_props,
+                        children: Vec::new(),
+                    }],
+                }],
+            }],
+        };
+        let mut map = Map::new(256, 256, "test".to_string(), 1);
+
+        OtbmLoader::parse_tiles(&map_data, &mut map).unwrap();
+
+        let door = &map
+            .get_tile(&Position::new(100, 100, 7))
+            .expect("tile should exist")
+            .items[0];
+        assert_eq!(door.get_integer(&ItemAttribute::ActionId), Some(5012));
+        assert_eq!(door.get_integer(&ItemAttribute::UniqueId), Some(42));
     }
 
     #[test]
