@@ -232,6 +232,8 @@ impl OtbmLoader {
 
     /// Parse tile-area nodes while respecting OTBM node nesting and escaping.
     fn parse_tiles(map_data: &OtbmNode, map: &mut Map) -> crate::Result<()> {
+        let declared_width = map.width;
+        let declared_height = map.height;
         for area in map_data
             .children
             .iter()
@@ -277,15 +279,25 @@ impl OtbmLoader {
                     .ok_or_else(|| {
                         OtmbError::InvalidDimensions("Tile y coordinate overflow".to_string())
                     })?;
-                if x >= map.width || y >= map.height {
+                if x == u16::MAX || y == u16::MAX {
                     log::warn!(
-                        "Skipping OTBM tile outside map bounds at ({}, {}, {})",
+                        "Skipping OTBM tile at unrepresentable map boundary ({}, {}, {})",
                         x,
                         y,
                         area_z
                     );
                     continue;
                 }
+                if x > declared_width || y > declared_height {
+                    log::warn!(
+                        "Skipping OTBM tile outside declared map bounds at ({}, {}, {})",
+                        x,
+                        y,
+                        area_z
+                    );
+                    continue;
+                }
+                Self::grow_map_bounds_for_tile(map, x, y)?;
                 let position = Position::new(x, y, area_z);
                 let mut tile = Tile::new(position);
                 let mut prop_cursor = 2;
@@ -351,6 +363,35 @@ impl OtbmLoader {
 
                 map.add_tile(tile)?;
             }
+        }
+        Ok(())
+    }
+
+    fn grow_map_bounds_for_tile(map: &mut Map, x: u16, y: u16) -> crate::Result<()> {
+        let required_width = x.checked_add(1).ok_or_else(|| {
+            OtmbError::InvalidDimensions(format!(
+                "Tile x coordinate {x} cannot fit in the map dimensions"
+            ))
+        })?;
+        let required_height = y.checked_add(1).ok_or_else(|| {
+            OtmbError::InvalidDimensions(format!(
+                "Tile y coordinate {y} cannot fit in the map dimensions"
+            ))
+        })?;
+        if required_width > map.width || required_height > map.height {
+            let previous_width = map.width;
+            let previous_height = map.height;
+            map.width = map.width.max(required_width);
+            map.height = map.height.max(required_height);
+            log::warn!(
+                "Expanded OTBM map bounds from {}x{} to {}x{} for tile ({}, {})",
+                previous_width,
+                previous_height,
+                map.width,
+                map.height,
+                x,
+                y
+            );
         }
         Ok(())
     }
@@ -559,6 +600,54 @@ mod tests {
                 .collect::<BTreeSet<_>>(),
             BTreeSet::from_iter(0..=14)
         );
+    }
+
+    #[test]
+    fn tile_parser_grows_stale_header_bounds_instead_of_dropping_edge_tiles() {
+        let map_data = OtbmNode {
+            node_type: OtbmNodeType::MapData as u8,
+            props: Vec::new(),
+            children: vec![area_node(7, vec![0, 0, 9, 231, 0], &[])],
+        };
+        let mut map = Map::new(100, 100, "test".to_string(), 1);
+
+        OtbmLoader::parse_tiles(&map_data, &mut map).unwrap();
+
+        assert_eq!((map.width, map.height), (101, 101));
+        assert!(map.get_tile(&Position::new(100, 100, 7)).is_some());
+    }
+
+    #[test]
+    fn map_bound_growth_rejects_coordinates_that_cannot_be_represented() {
+        let mut map = Map::new(100, 100, "test".to_string(), 1);
+
+        assert!(matches!(
+            OtbmLoader::grow_map_bounds_for_tile(&mut map, u16::MAX, 50),
+            Err(OtmbError::InvalidDimensions(message)) if message.contains("65535")
+        ));
+    }
+
+    #[test]
+    fn tile_parser_skips_unrepresentable_boundary_sentinels() {
+        let map_data = OtbmNode {
+            node_type: OtbmNodeType::MapData as u8,
+            props: Vec::new(),
+            children: vec![OtbmNode {
+                node_type: OtbmNodeType::TileArea as u8,
+                props: vec![255, 255, 50, 0, 7],
+                children: vec![OtbmNode {
+                    node_type: OtbmNodeType::Tile as u8,
+                    props: vec![0, 0, 9, 231, 0],
+                    children: Vec::new(),
+                }],
+            }],
+        };
+        let mut map = Map::new(256, 256, "test".to_string(), 1);
+
+        OtbmLoader::parse_tiles(&map_data, &mut map).unwrap();
+
+        assert_eq!((map.width, map.height), (256, 256));
+        assert_eq!(map.tile_count(), 0);
     }
 
     #[test]
