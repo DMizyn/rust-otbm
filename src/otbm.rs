@@ -336,7 +336,7 @@ impl OtbmLoader {
             let area_x = read_u16(&area.props, 0)?;
             let area_y = read_u16(&area.props, 2)?;
             let area_z = area.props[4];
-            if area_z > 14 {
+            if area_z > 15 {
                 return Err(OtmbError::InvalidFormat(format!(
                     "Tile area uses invalid z-level {}",
                     area_z
@@ -780,17 +780,26 @@ mod tests {
     }
 
     #[test]
-    fn tile_parser_rejects_floor_above_fourteen() {
-        let map_data = OtbmNode {
+    fn tile_parser_accepts_floor_fifteen_and_rejects_floor_sixteen() {
+        let floor_fifteen = OtbmNode {
             node_type: OtbmNodeType::MapData as u8,
             props: Vec::new(),
             children: vec![area_node(15, vec![0, 0], &[])],
         };
         let mut map = Map::new(256, 256, "test".to_string(), 1);
 
+        OtbmLoader::parse_tiles(&floor_fifteen, &mut map).unwrap();
+
+        let map_data = OtbmNode {
+            node_type: OtbmNodeType::MapData as u8,
+            props: Vec::new(),
+            children: vec![area_node(16, vec![0, 0], &[])],
+        };
+        let mut map = Map::new(256, 256, "test".to_string(), 1);
+
         assert!(matches!(
             OtbmLoader::parse_tiles(&map_data, &mut map),
-            Err(OtmbError::InvalidFormat(message)) if message.contains("z-level 15")
+            Err(OtmbError::InvalidFormat(message)) if message.contains("z-level 16")
         ));
     }
 }
